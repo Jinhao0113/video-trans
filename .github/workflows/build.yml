@@ -114,13 +114,11 @@ jobs:
           fi
           
           echo "📦 Installing official GitLab CLI (glab)..."
-          curl -sL https://gitlab.com/gitlab-org/cli/-/releases/permalink/latest/downloads/glab_Linux_x86_64.tar.gz | sudo tar -xz -C /usr/local/bin -f - bin/glab --strip-components=1
-          
-          echo "🔐 Authenticating with git.lug.ustc.edu.cn..."
-          export GITLAB_HOST=git.lug.ustc.edu.cn
-          glab auth login --hostname $GITLAB_HOST --token $GITLAB_TOKEN
+          curl -fsSL https://cli.gitlab.com/packages/github.com/gitlab-org/cli/setup.sh | sudo bash
+          sudo apt install glab -y
           
           echo "🚀 Creating official release on USTC GitLab..."
+          export GITLAB_HOST=git.lug.ustc.edu.cn
           glab release create ${{ github.ref_name }} release-artifacts/* \
             --repo jinhao_hu/video-trans \
             --name "Release ${{ github.ref_name }}" \
