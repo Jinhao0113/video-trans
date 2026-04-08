@@ -71,10 +71,13 @@ else
   info "工作区干净，无需提交。"
 fi
 
-# ── 推送到 GitHub main ────────────────────────────────────────────────────────
-step "推送到 GitHub"
+# ── 推送到远程仓库 ────────────────────────────────────────────────────────────
+step "推送到远程仓库"
+info "正在推送到 GitHub (origin)..."
 git push origin main
-success "代码已推送到 GitHub main 分支。"
+info "正在推送到 USTC GitLab (ustc)..."
+git push ustc main
+success "代码已成功推送到所有远程仓库的 main 分支。"
 
 # ── 是否发布 Release ──────────────────────────────────────────────────────────
 step "发布 Release"
@@ -159,13 +162,17 @@ if git tag -l "$NEW_TAG" | grep -q "$NEW_TAG"; then
 fi
 
 git tag "$NEW_TAG"
+info "正在推送到 GitHub (origin)..."
 git push origin main
 git push origin "$NEW_TAG"
+info "正在推送到 USTC GitLab (ustc)..."
+git push ustc main
+git push ustc "$NEW_TAG"
 
 echo ""
 divider
 success "🎉 发布完成！"
-info "Tag ${BOLD}${NEW_TAG}${RESET} 已推送，GitHub Actions 正在构建中..."
+info "Tag ${BOLD}${NEW_TAG}${RESET} 已同步到 GitHub 和 USTC GitLab。"
 info "查看构建进度: https://github.com/Jinhao0113/video-trans/actions"
 divider
 echo ""
