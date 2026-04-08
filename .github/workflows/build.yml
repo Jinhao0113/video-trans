@@ -27,8 +27,13 @@ jobs:
           node-version: 20
           cache: 'npm'
 
-      - name: Install FFmpeg
+      - name: Install FFmpeg (Windows & Linux)
+        if: runner.os != 'macOS'
         uses: FedericoCarboni/setup-ffmpeg@v3
+
+      - name: Install FFmpeg (macOS)
+        if: runner.os == 'macOS'
+        run: brew install ffmpeg
 
       - name: Copy FFmpeg binaries
         run: |
