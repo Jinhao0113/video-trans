@@ -2,23 +2,28 @@ name: Build and Release
 
 on:
   push:
-    branches:
-      - main
     tags:
       - 'v*'
-  pull_request:
-    branches:
-      - main
 
 permissions:
   contents: write
 
 jobs:
+  # ─────────────────────────────────────────────
+  # Stage 1: Build on all three platforms
+  # ─────────────────────────────────────────────
   build:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest, windows-latest, ubuntu-latest]
+        include:
+          - os: macos-latest
+            platform: mac
+          - os: windows-latest
+            platform: win
+          - os: ubuntu-latest
+            platform: linux
+
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -31,6 +36,7 @@ jobs:
           node-version: 20
           cache: 'npm'
 
+      # ── FFmpeg installation ──────────────────
       - name: Install FFmpeg (Windows & Linux)
         if: runner.os != 'macOS'
         uses: FedericoCarboni/setup-ffmpeg@v3
@@ -39,29 +45,25 @@ jobs:
         if: runner.os == 'macOS'
         run: brew install ffmpeg
 
-      - name: Copy FFmpeg binaries
-        run: |
-          # Create the corresponding platform directory
-          if [ "${{ runner.os }}" = "macOS" ]; then
-            PLATFORM="mac"
-          elif [ "${{ runner.os }}" = "Windows" ]; then
-            PLATFORM="win"
-          else
-            PLATFORM="linux"
-          fi
-          
-          mkdir -p ffmpeg-bin/$PLATFORM
-          
-          # Copy binaries
-          if [ "${{ runner.os }}" = "Windows" ]; then
-            cp $(which ffmpeg.exe) ffmpeg-bin/$PLATFORM/
-            cp $(which ffprobe.exe) ffmpeg-bin/$PLATFORM/
-          else
-            cp $(which ffmpeg) ffmpeg-bin/$PLATFORM/
-            cp $(which ffprobe) ffmpeg-bin/$PLATFORM/
-          fi
+      # ── Copy FFmpeg binaries into project ────
+      - name: Copy FFmpeg binaries (macOS / Linux)
+        if: runner.os != 'Windows'
         shell: bash
+        run: |
+          PLATFORM="${{ matrix.platform }}"
+          mkdir -p ffmpeg-bin/$PLATFORM
+          cp "$(which ffmpeg)"  ffmpeg-bin/$PLATFORM/
+          cp "$(which ffprobe)" ffmpeg-bin/$PLATFORM/
 
+      - name: Copy FFmpeg binaries (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path "ffmpeg-bin\win"
+          Copy-Item (Get-Command ffmpeg.exe).Source  "ffmpeg-bin\win\"
+          Copy-Item (Get-Command ffprobe.exe).Source "ffmpeg-bin\win\"
+
+      # ── Build & package ──────────────────────
       - name: Install dependencies
         run: npm ci
 
@@ -72,54 +74,142 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Upload artifacts
+      # ── Upload per-platform artifacts ────────
+      - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: MediaForge-${{ matrix.os }}-build
+          name: MediaForge-${{ matrix.platform }}
           path: |
             release/*.dmg
             release/*.exe
             release/*.deb
+            release/*.AppImage
+          if-no-files-found: warn
           retention-days: 7
 
+  # ─────────────────────────────────────────────
+  # Stage 2: Publish release (GitHub + USTC GitLab)
+  # ─────────────────────────────────────────────
   publish:
     needs: build
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
+
     steps:
-      - name: Download all artifacts
+      - name: Checkout Code (for source archive)
+        uses: actions/checkout@v4
+
+      - name: Download all build artifacts
         uses: actions/download-artifact@v4
         with:
           path: release-artifacts
           merge-multiple: true
 
-      - name: Upload to GitHub Release
+      - name: List release files
+        run: ls -lh release-artifacts/
+
+      # ── Publish to GitHub Release ─────────────
+      - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          generate_release_notes: true
           files: |
             release-artifacts/*.dmg
             release-artifacts/*.exe
             release-artifacts/*.deb
+            release-artifacts/*.AppImage
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Upload to USTC GitLab Release
+      # ── Publish to USTC GitLab Release ───────
+      - name: Publish to USTC GitLab
         env:
           GITLAB_TOKEN: ${{ secrets.USTC_GITLAB_TOKEN }}
+          TAG_NAME: ${{ github.ref_name }}
+          GITLAB_HOST: git.lug.ustc.edu.cn
+          GITLAB_PROJECT: jinhao_hu%2Fvideo-trans   # URL-encoded "jinhao_hu/video-trans"
         run: |
           if [ -z "$GITLAB_TOKEN" ]; then
-            echo "⚠️ USTC_GITLAB_TOKEN is not configured in GitHub Secrets."
-            echo "Please add your GitLab Personal Access Token to sync releases."
+            echo "⚠️  USTC_GITLAB_TOKEN secret is not set — skipping GitLab publish."
             exit 0
           fi
-          
-          echo "📦 Installing official GitLab CLI (glab)..."
-          curl -fsSL https://cli.gitlab.com/packages/github.com/gitlab-org/cli/setup.sh | sudo bash
-          sudo apt install glab -y
-          
-          echo "🚀 Creating official release on USTC GitLab..."
-          export GITLAB_HOST=git.lug.ustc.edu.cn
-          glab release create ${{ github.ref_name }} release-artifacts/* \
-            --repo jinhao_hu/video-trans \
-            --name "Release ${{ github.ref_name }}" \
-            --notes "Auto-published compiled binaries transferred from GitHub Actions." || echo "Already existed or failed."
+
+          API="https://${GITLAB_HOST}/api/v4/projects/${GITLAB_PROJECT}"
+          AUTH_HEADER="PRIVATE-TOKEN: ${GITLAB_TOKEN}"
+
+          # ── 1. Create or update the tag on GitLab ──────────────────────────
+          echo "🏷  Ensuring tag ${TAG_NAME} exists on GitLab..."
+          # Get current HEAD SHA
+          HEAD_SHA=$(git rev-parse HEAD)
+
+          # Try to create the tag; ignore error if it already exists
+          curl -s -o /dev/null -w "%{http_code}" \
+            -X POST "${API}/repository/tags" \
+            -H "${AUTH_HEADER}" \
+            -H "Content-Type: application/json" \
+            -d "{\"tag_name\":\"${TAG_NAME}\",\"ref\":\"${HEAD_SHA}\"}" || true
+
+          # ── 2. Create the GitLab Release ────────────────────────────────────
+          echo "📦  Creating GitLab release ${TAG_NAME}..."
+          RELEASE_RESP=$(curl -s -o /dev/null -w "%{http_code}" \
+            -X POST "${API}/releases" \
+            -H "${AUTH_HEADER}" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"tag_name\": \"${TAG_NAME}\",
+              \"name\": \"Release ${TAG_NAME}\",
+              \"description\": \"Auto-published from GitHub Actions. Includes compiled binaries for macOS, Windows, and Linux.\"
+            }")
+
+          if [ "$RELEASE_RESP" = "409" ]; then
+            echo "ℹ️  Release already exists — will only upload assets."
+            # Update existing release description
+            curl -s -o /dev/null \
+              -X PUT "${API}/releases/${TAG_NAME}" \
+              -H "${AUTH_HEADER}" \
+              -H "Content-Type: application/json" \
+              -d "{
+                \"description\": \"Auto-published from GitHub Actions. Includes compiled binaries for macOS, Windows, and Linux.\"
+              }"
+          fi
+
+          # ── 3. Upload each binary as a release asset ────────────────────────
+          upload_asset() {
+            local FILE="$1"
+            local BASENAME
+            BASENAME=$(basename "$FILE")
+            echo "⬆️   Uploading ${BASENAME}..."
+
+            # Upload to GitLab project uploads endpoint
+            UPLOAD_JSON=$(curl -s \
+              -X POST "${API}/uploads" \
+              -H "${AUTH_HEADER}" \
+              -F "file=@${FILE}")
+
+            UPLOAD_URL=$(echo "$UPLOAD_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin)['full_path'])" 2>/dev/null || true)
+
+            if [ -z "$UPLOAD_URL" ]; then
+              echo "  ⚠️  Upload failed for ${BASENAME}. Response: ${UPLOAD_JSON}"
+              return
+            fi
+
+            FULL_URL="https://${GITLAB_HOST}${UPLOAD_URL}"
+            echo "  ✅  Uploaded: ${FULL_URL}"
+
+            # Attach the uploaded file as a release link
+            curl -s -o /dev/null \
+              -X POST "${API}/releases/${TAG_NAME}/assets/links" \
+              -H "${AUTH_HEADER}" \
+              -H "Content-Type: application/json" \
+              -d "{
+                \"name\": \"${BASENAME}\",
+                \"url\": \"${FULL_URL}\",
+                \"link_type\": \"package\"
+              }"
+          }
+
+          for f in release-artifacts/*.dmg release-artifacts/*.exe release-artifacts/*.deb release-artifacts/*.AppImage; do
+            [ -f "$f" ] && upload_asset "$f"
+          done
+
+          echo "🎉  GitLab release ${TAG_NAME} published successfully!"
