@@ -28,12 +28,14 @@ MediaForge 是一款功能强大的跨平台媒体处理工具，以 Electron �
 | 项目 | 要求 |
 |------|------|
 | 操作系统 | macOS 10.15+, Windows 10+, Ubuntu 20.04+ |
-| Node.js | ≥ 18 |
-| FFmpeg | ≥ 4.0（系统安装 或 内置） |
 
 ---
 
 ## 🚀 快速开始
+
+在[release](https://github.com/Jinhao0113/video-trans/releases/tag/v1.0.6)（国内用户可以使用[这个](https://git.lug.ustc.edu.cn/jinhao_hu/video-trans/-/releases)）下载对应系统最新版本
+
+## 本地构建
 
 ### 1. 克隆项目
 
@@ -77,20 +79,6 @@ sudo apt install ffmpeg
 ```bash
 npm run dev
 ```
-
----
-
-## 📦 打包发布
-
-详见 → **[build.md](./build.md)**
-
-```bash
-npm run dist:mac    # macOS DMG
-npm run dist:win    # Windows NSIS 安装包
-npm run dist:linux  # Linux AppImage & deb
-```
-
----
 
 ## 📂 项目结构
 
@@ -138,6 +126,10 @@ mediaforge/
 | 图标库 | [lucide-react](https://lucide.dev) |
 
 ---
+## 编写说明
+
+本应用使用Antigravity+Claude+Gemini编写
+
 
 ## 📄 许可证
 
