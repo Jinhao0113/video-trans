@@ -40,9 +40,9 @@ jobs:
         run: |
           # Create the corresponding platform directory
           if [ "${{ runner.os }}" = "macOS" ]; then
-            PLATFORM="darwin"
+            PLATFORM="mac"
           elif [ "${{ runner.os }}" = "Windows" ]; then
-            PLATFORM="win32"
+            PLATFORM="win"
           else
             PLATFORM="linux"
           fi

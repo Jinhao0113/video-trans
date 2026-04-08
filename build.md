@@ -46,10 +46,10 @@ MediaForge **不使用** `ffmpeg-static` npm 包。应用支持两种 FFmpeg 获
 
 ```
 ffmpeg-bin/
-├── darwin/         # macOS
+├── mac/            # macOS
 │   ├── ffmpeg
 │   └── ffprobe
-├── win32/          # Windows
+├── win/             # Windows
 │   ├── ffmpeg.exe
 │   └── ffprobe.exe
 └── linux/          # Linux
@@ -67,8 +67,8 @@ ffmpeg-bin/
 
 ```bash
 # 方法 1: 从 Homebrew 复制（仅限 macOS 构建）
-cp $(which ffmpeg) ffmpeg-bin/darwin/ffmpeg
-cp $(which ffprobe) ffmpeg-bin/darwin/ffprobe
+cp $(which ffmpeg) ffmpeg-bin/mac/ffmpeg
+cp $(which ffprobe) ffmpeg-bin/mac/ffprobe
 
 # 方法 2: 从官方静态构建下载
 # 访问 https://evermeet.cx/ffmpeg/ 下载 macOS 静态构建版本
@@ -147,8 +147,8 @@ export APPLE_TEAM_ID=your_team_id
 winget install ffmpeg
 
 # 将 ffmpeg.exe 和 ffprobe.exe 复制到:
-# ffmpeg-bin/win32/ffmpeg.exe
-# ffmpeg-bin/win32/ffprobe.exe
+# ffmpeg-bin/win/ffmpeg.exe
+# ffmpeg-bin/win/ffprobe.exe
 ```
 
 #### 构建命令

@@ -47,9 +47,7 @@
       {
         "from": "ffmpeg-bin/${os}",
         "to": "ffmpeg-bin",
-        "filter": [
-          "**/*"
-        ]
+        "filter": ["**/*"]
       }
     ],
     "mac": {
