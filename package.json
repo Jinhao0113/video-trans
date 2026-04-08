@@ -1,6 +1,6 @@
 {
   "name": "mediaforge",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Cross-platform FFmpeg-based media processing application",
   "main": "./out/main/index.js",
   "author": "MediaForge <jinhao0113@outlook.com>",
@@ -47,7 +47,9 @@
       {
         "from": "ffmpeg-bin/${os}",
         "to": "ffmpeg-bin",
-        "filter": ["**/*"]
+        "filter": [
+          "**/*"
+        ]
       }
     ],
     "mac": {
