@@ -94,6 +94,9 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
+    # 把 token 放在 job 级别，这样 if 条件和所有步骤都能引用
+    env:
+      USTC_GITLAB_TOKEN: ${{ secrets.USTC_GITLAB_TOKEN }}
 
     steps:
       - name: Checkout full history (for GitLab mirror)
@@ -127,8 +130,6 @@ jobs:
       # 必须先把代码推到 GitLab，tag 才存在，release 才能创建
       - name: Mirror repository to USTC GitLab
         if: ${{ env.USTC_GITLAB_TOKEN != '' }}
-        env:
-          USTC_GITLAB_TOKEN: ${{ secrets.USTC_GITLAB_TOKEN }}
         run: |
           echo "🔀 Pushing code and tags to USTC GitLab..."
           git remote add gitlab \
@@ -143,7 +144,6 @@ jobs:
       - name: Create GitLab Release and upload assets
         if: ${{ env.USTC_GITLAB_TOKEN != '' }}
         env:
-          USTC_GITLAB_TOKEN: ${{ secrets.USTC_GITLAB_TOKEN }}
           TAG_NAME: ${{ github.ref_name }}
           GITLAB_HOST: git.lug.ustc.edu.cn
           # URL-encoded "jinhao_hu/video-trans"
