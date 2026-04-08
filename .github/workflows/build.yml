@@ -81,3 +81,47 @@ jobs:
             release/*.exe
             release/*.deb
           retention-days: 7
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-artifacts
+          merge-multiple: true
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release-artifacts/*.dmg
+            release-artifacts/*.exe
+            release-artifacts/*.deb
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload to USTC GitLab Release
+        env:
+          GITLAB_TOKEN: ${{ secrets.USTC_GITLAB_TOKEN }}
+        run: |
+          if [ -z "$GITLAB_TOKEN" ]; then
+            echo "⚠️ USTC_GITLAB_TOKEN is not configured in GitHub Secrets."
+            echo "Please add your GitLab Personal Access Token to sync releases."
+            exit 0
+          fi
+          
+          echo "📦 Installing official GitLab CLI (glab)..."
+          curl -sL https://gitlab.com/gitlab-org/cli/-/releases/permalink/latest/downloads/glab_Linux_x86_64.tar.gz | sudo tar -xz -C /usr/local/bin -f - bin/glab --strip-components=1
+          
+          echo "🔐 Authenticating with git.lug.ustc.edu.cn..."
+          export GITLAB_HOST=git.lug.ustc.edu.cn
+          glab auth login --hostname $GITLAB_HOST --token $GITLAB_TOKEN
+          
+          echo "🚀 Creating official release on USTC GitLab..."
+          glab release create ${{ github.ref_name }} release-artifacts/* \
+            --repo jinhao_hu/video-trans \
+            --name "Release ${{ github.ref_name }}" \
+            --notes "Auto-published compiled binaries transferred from GitHub Actions." || echo "Already existed or failed."
