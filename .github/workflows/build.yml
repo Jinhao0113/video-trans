@@ -75,8 +75,6 @@ jobs:
           name: MediaForge-${{ matrix.os }}-build
           path: |
             release/*.dmg
-            release/*.zip
             release/*.exe
-            release/*.AppImage
             release/*.deb
           retention-days: 7

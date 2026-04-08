@@ -53,21 +53,18 @@
     "mac": {
       "category": "public.app-category.video",
       "target": [
-        "dmg",
-        "zip"
+        "dmg"
       ],
       "icon": "resources/icon.icns"
     },
     "win": {
       "target": [
-        "nsis",
-        "zip"
+        "nsis"
       ],
       "icon": "resources/icon.ico"
     },
     "linux": {
       "target": [
-        "AppImage",
         "deb"
       ],
       "icon": "resources/icon.png",
