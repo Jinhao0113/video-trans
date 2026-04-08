@@ -96,8 +96,10 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/')
 
     steps:
-      - name: Checkout Code (for source archive)
+      - name: Checkout full history (for GitLab mirror)
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # 获取完整历史，确保能 push 到 GitLab
 
       - name: Download all build artifacts
         uses: actions/download-artifact@v4
@@ -121,95 +123,121 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # ── Publish to USTC GitLab Release ───────
-      - name: Publish to USTC GitLab
+      # ── Mirror code + tag to USTC GitLab ─────
+      # 必须先把代码推到 GitLab，tag 才存在，release 才能创建
+      - name: Mirror repository to USTC GitLab
+        if: ${{ env.USTC_GITLAB_TOKEN != '' }}
         env:
-          GITLAB_TOKEN: ${{ secrets.USTC_GITLAB_TOKEN }}
+          USTC_GITLAB_TOKEN: ${{ secrets.USTC_GITLAB_TOKEN }}
+        run: |
+          echo "🔀 Pushing code and tags to USTC GitLab..."
+          git remote add gitlab \
+            "https://oauth2:${USTC_GITLAB_TOKEN}@git.lug.ustc.edu.cn/jinhao_hu/video-trans.git"
+
+          # Push all branches and all tags
+          git push gitlab --all --force
+          git push gitlab --tags --force
+          echo "✅ Mirror push complete."
+
+      # ── Create GitLab Release & upload assets ─
+      - name: Create GitLab Release and upload assets
+        if: ${{ env.USTC_GITLAB_TOKEN != '' }}
+        env:
+          USTC_GITLAB_TOKEN: ${{ secrets.USTC_GITLAB_TOKEN }}
           TAG_NAME: ${{ github.ref_name }}
           GITLAB_HOST: git.lug.ustc.edu.cn
-          GITLAB_PROJECT: jinhao_hu%2Fvideo-trans   # URL-encoded "jinhao_hu/video-trans"
+          # URL-encoded "jinhao_hu/video-trans"
+          GITLAB_PROJECT: jinhao_hu%2Fvideo-trans
         run: |
-          if [ -z "$GITLAB_TOKEN" ]; then
-            echo "⚠️  USTC_GITLAB_TOKEN secret is not set — skipping GitLab publish."
-            exit 0
-          fi
+          set -euo pipefail
 
           API="https://${GITLAB_HOST}/api/v4/projects/${GITLAB_PROJECT}"
-          AUTH_HEADER="PRIVATE-TOKEN: ${GITLAB_TOKEN}"
+          AUTH="-H \"PRIVATE-TOKEN: ${USTC_GITLAB_TOKEN}\""
 
-          # ── 1. Create or update the tag on GitLab ──────────────────────────
-          echo "🏷  Ensuring tag ${TAG_NAME} exists on GitLab..."
-          # Get current HEAD SHA
-          HEAD_SHA=$(git rev-parse HEAD)
+          call_api() {
+            curl -sf \
+              -H "PRIVATE-TOKEN: ${USTC_GITLAB_TOKEN}" \
+              "$@"
+          }
 
-          # Try to create the tag; ignore error if it already exists
-          curl -s -o /dev/null -w "%{http_code}" \
-            -X POST "${API}/repository/tags" \
-            -H "${AUTH_HEADER}" \
-            -H "Content-Type: application/json" \
-            -d "{\"tag_name\":\"${TAG_NAME}\",\"ref\":\"${HEAD_SHA}\"}" || true
-
-          # ── 2. Create the GitLab Release ────────────────────────────────────
-          echo "📦  Creating GitLab release ${TAG_NAME}..."
-          RELEASE_RESP=$(curl -s -o /dev/null -w "%{http_code}" \
+          # ── 1. Create or update Release ──────────────────────────────────────
+          echo "📦 Creating GitLab Release ${TAG_NAME}..."
+          HTTP=$(curl -s -o /tmp/gl_release.json -w "%{http_code}" \
             -X POST "${API}/releases" \
-            -H "${AUTH_HEADER}" \
+            -H "PRIVATE-TOKEN: ${USTC_GITLAB_TOKEN}" \
             -H "Content-Type: application/json" \
             -d "{
               \"tag_name\": \"${TAG_NAME}\",
               \"name\": \"Release ${TAG_NAME}\",
-              \"description\": \"Auto-published from GitHub Actions. Includes compiled binaries for macOS, Windows, and Linux.\"
+              \"description\": \"Auto-published from GitHub Actions.\nIncludes compiled installers for macOS (.dmg), Windows (.exe) and Linux (.deb).\"
             }")
 
-          if [ "$RELEASE_RESP" = "409" ]; then
-            echo "ℹ️  Release already exists — will only upload assets."
-            # Update existing release description
-            curl -s -o /dev/null \
-              -X PUT "${API}/releases/${TAG_NAME}" \
-              -H "${AUTH_HEADER}" \
-              -H "Content-Type: application/json" \
-              -d "{
-                \"description\": \"Auto-published from GitHub Actions. Includes compiled binaries for macOS, Windows, and Linux.\"
-              }"
-          fi
+          case "$HTTP" in
+            201) echo "✅ Release created (201)." ;;
+            409)
+              echo "ℹ️  Release already exists (409) — updating description..."
+              call_api -X PUT "${API}/releases/${TAG_NAME}" \
+                -H "Content-Type: application/json" \
+                -d "{\"description\": \"Auto-published from GitHub Actions.\nIncludes compiled installers for macOS (.dmg), Windows (.exe) and Linux (.deb).\"}" \
+                -o /dev/null
+              ;;
+            *)
+              echo "❌ Unexpected HTTP ${HTTP} when creating release:"
+              cat /tmp/gl_release.json
+              exit 1
+              ;;
+          esac
 
-          # ── 3. Upload each binary as a release asset ────────────────────────
+          # ── 2. Upload binaries as release asset links ─────────────────────────
           upload_asset() {
             local FILE="$1"
             local BASENAME
             BASENAME=$(basename "$FILE")
-            echo "⬆️   Uploading ${BASENAME}..."
+            echo ""
+            echo "⬆️  Uploading ${BASENAME}..."
 
-            # Upload to GitLab project uploads endpoint
-            UPLOAD_JSON=$(curl -s \
+            # Upload file to project storage
+            local UPLOAD_JSON
+            UPLOAD_JSON=$(call_api \
               -X POST "${API}/uploads" \
-              -H "${AUTH_HEADER}" \
               -F "file=@${FILE}")
 
-            UPLOAD_URL=$(echo "$UPLOAD_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin)['full_path'])" 2>/dev/null || true)
+            # GitLab returns: {"full_path": "/jinhao_hu/video-trans/uploads/.../filename", ...}
+            local FULL_PATH
+            FULL_PATH=$(echo "$UPLOAD_JSON" | python3 -c \
+              "import sys,json; print(json.load(sys.stdin)['full_path'])")
 
-            if [ -z "$UPLOAD_URL" ]; then
-              echo "  ⚠️  Upload failed for ${BASENAME}. Response: ${UPLOAD_JSON}"
-              return
-            fi
+            local ASSET_URL="https://${GITLAB_HOST}${FULL_PATH}"
+            echo "   File available at: ${ASSET_URL}"
 
-            FULL_URL="https://${GITLAB_HOST}${UPLOAD_URL}"
-            echo "  ✅  Uploaded: ${FULL_URL}"
-
-            # Attach the uploaded file as a release link
-            curl -s -o /dev/null \
+            # Attach as a named release link
+            local LINK_HTTP
+            LINK_HTTP=$(curl -s -o /tmp/gl_link.json -w "%{http_code}" \
               -X POST "${API}/releases/${TAG_NAME}/assets/links" \
-              -H "${AUTH_HEADER}" \
+              -H "PRIVATE-TOKEN: ${USTC_GITLAB_TOKEN}" \
               -H "Content-Type: application/json" \
               -d "{
                 \"name\": \"${BASENAME}\",
-                \"url\": \"${FULL_URL}\",
+                \"url\": \"${ASSET_URL}\",
                 \"link_type\": \"package\"
-              }"
+              }")
+
+            if [ "$LINK_HTTP" = "201" ]; then
+              echo "   ✅ Asset link created."
+            else
+              echo "   ⚠️  Asset link HTTP ${LINK_HTTP}:"
+              cat /tmp/gl_link.json
+            fi
           }
 
-          for f in release-artifacts/*.dmg release-artifacts/*.exe release-artifacts/*.deb release-artifacts/*.AppImage; do
-            [ -f "$f" ] && upload_asset "$f"
+          FOUND=0
+          for f in release-artifacts/*.dmg release-artifacts/*.exe \
+                   release-artifacts/*.deb release-artifacts/*.AppImage; do
+            if [ -f "$f" ]; then
+              upload_asset "$f"
+              FOUND=$((FOUND + 1))
+            fi
           done
 
-          echo "🎉  GitLab release ${TAG_NAME} published successfully!"
+          echo ""
+          echo "🎉 Done! ${FOUND} asset(s) attached to GitLab Release ${TAG_NAME}."
