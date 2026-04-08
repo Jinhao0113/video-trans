@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "description": "Cross-platform FFmpeg-based media processing application",
   "main": "./out/main/index.js",
-  "author": "MediaForge <support@mediaforge.app>",
+  "author": "MediaForge <jinhao0113@outlook.com>",
   "license": "MIT",
   "scripts": {
     "dev": "electron-vite dev",
